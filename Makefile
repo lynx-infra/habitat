@@ -23,7 +23,8 @@ clean:
 	@rm -rf tests/*.pyc tests/__pycache__ build dist
 
 package:
-	@python3 setup.py sdist bdist_wheel
+	@python3 setup.py sdist
+	@pex -P core -r requirements.txt -f dist -e core.main -o hab.pex --python-shebang='python3'
 
 .IGNORE: install_dev
 .PHONY: all check install_dev isort isort_check lint test
