@@ -13,8 +13,6 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from aiohttp.web_exceptions import HTTPError
-
 from core.common.cache_mixin import CacheMixin
 from core.common.http_status import client_error, server_error, success
 from core.common.httpx_client import HttpxClient
@@ -195,7 +193,7 @@ class HttpFetcher(Fetcher, CacheMixin):
         """
         resp, _, data = await self.download_client.async_request('GET', url)
         if server_error(resp.status_code) or client_error(resp.status_code):
-            raise HTTPError(reason=resp.reason, headers=resp.headers)
+            raise HabitatException(f'got a status code {resp.status_code} when downloading {url}')
         if success(resp.status_code):
             pass
 

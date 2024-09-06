@@ -12,10 +12,8 @@ AUTHOR = 'wangjianliang'
 
 REQUIRES = [
     'coloredlogs>=15.0.0,<16.0.0',
-    'aiohttp>=3.8.3,<3.8.5',
     'asyncio-atexit==1.0.1',
     'httpx==0.27.0'
-    # 'typing_extensions>=3.6.5,<4.0'  # fix bug of aiohttp: https://github.com/aio-libs/aiohttp/pull/5123
 ]
 
 DEV_REQUIRES = [
@@ -23,7 +21,8 @@ DEV_REQUIRES = [
     'tox>=3.0.0,<4.0.0',
     'isort>=4.0.0,<5.0.0',
     'pytest>=4.0.0,<5.0.0',
-    'pytest_httpserver==1.0.12'
+    'pytest_httpserver==1.0.12',
+    'pex'
 ] + REQUIRES
 
 here = os.path.abspath(os.path.dirname(__file__))
