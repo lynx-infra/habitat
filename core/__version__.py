@@ -4,16 +4,4 @@
 
 VERSION = (0, 3, 127)
 
-alpha = None
-rc = None
-suffix = None
-
 __version__ = '.'.join(map(str, VERSION))
-
-if alpha is not None:
-    __version__ += f"-alpha.{alpha}"
-elif rc is not None:
-    __version__ += f"-rc.{rc}"
-
-if suffix:
-    __version__ += f"-{suffix}"
