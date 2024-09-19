@@ -19,6 +19,7 @@ import platform
 import posixpath
 import random
 import re
+import shlex
 import shutil
 import stat
 import string
@@ -568,3 +569,17 @@ def literally_replace(content: str, config):
     for token, value in config:
         content = content.replace(f'{{{token}}}', value)
     return content
+
+
+async def is_git_user_set() -> bool:
+    try:
+        await async_check_output(
+            shlex.split('git config user.name'), stderr=subprocess.STDOUT
+        )
+        await async_check_output(
+            shlex.split('git config user.email'), stderr=subprocess.STDOUT
+        )
+    except subprocess.CalledProcessError:
+        return False
+
+    return True
