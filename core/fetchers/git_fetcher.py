@@ -66,6 +66,9 @@ async def apply_patches(patch_path: str, cwd: str):
     expanded_patch_paths = list(glob(patch_path))
     expanded_patch_paths.sort()
 
+    if not expanded_patch_paths:
+        raise HabitatException('failed to match valid patch paths.')
+
     apply = 'apply'
     if is_git_user_set():
         apply = 'am'
