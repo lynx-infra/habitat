@@ -13,9 +13,9 @@ from glob import glob
 from core.exceptions import HabitatException
 from core.fetchers.fetcher import Fetcher
 from core.settings import DEBUG
-from core.utils import (async_check_call, async_check_output, convert_git_url_to_http, create_temp_dir,
-                        get_full_commit_id, is_bare_git_repo, is_git_repo_valid, is_git_root, is_git_user_set, move,
-                        rmtree, set_git_alternates)
+from core.utils import (async_check_output, convert_git_url_to_http, create_temp_dir, get_full_commit_id,
+                        is_bare_git_repo, is_git_repo_valid, is_git_root, is_git_user_set, move, rmtree,
+                        set_git_alternates)
 
 
 async def fetch_in_cache_if_needed(
@@ -38,7 +38,9 @@ async def fetch_in_cache_if_needed(
     else:
         cmd = f'git rev-parse {ref_spec.rsplit()[-1]}'
         try:
-            await run_git_command(cmd, shell=True, cwd=repo_cache_dir, stderr=subprocess.STDOUT)
+            await run_git_command(
+                cmd, shell=True, cwd=repo_cache_dir, stderr=subprocess.STDOUT, suppress_error_log=True
+            )
         except subprocess.CalledProcessError:
             need_fetch = True
 
@@ -51,13 +53,17 @@ async def fetch_in_cache_if_needed(
 
 
 async def run_git_command(cmd: str, *args, **kwargs):
+    suppress_error_log = kwargs.get('suppress_error_log', False)
+    if suppress_error_log:
+        kwargs.pop('suppress_error_log')
     try:
         output = await async_check_output(cmd, *args, **kwargs)
     except subprocess.CalledProcessError as e:
-        logging.error(
-            f"running command {cmd} in {kwargs.get('cwd') if kwargs.get('cwd') else os.getcwd()}, original output:\n"
-            f"{e.output.decode()}"
-        )
+        if not suppress_error_log:
+            logging.error(
+                f"running command {cmd} in {kwargs.get('cwd') if kwargs.get('cwd') else os.getcwd()}, "
+                f"original output:{os.linesep}{e.output.decode()}"
+            )
         raise e
     return output.decode()
 
@@ -70,7 +76,7 @@ async def apply_patches(patch_path: str, cwd: str):
         raise HabitatException('failed to match valid patch paths.')
 
     apply = 'apply'
-    if is_git_user_set():
+    if await is_git_user_set():
         apply = 'am'
     try:
         await async_check_output(
@@ -120,7 +126,9 @@ class GitFetcher(Fetcher):
         # files tracked by lfs will be replaced by file pointer
         if getattr(self.component, 'enable_lfs', False):
             try:
-                await run_git_command('git lfs install', shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
+                await run_git_command(
+                    'git lfs install', shell=True, cwd=source_dir, stderr=subprocess.STDOUT, suppress_error_log=True
+                )
             except subprocess.CalledProcessError as e:
                 logging.warning(f'{e.output.decode()} This may caused by: '
                                 f'1. git lfs not installed. 2. a git lfs install command is already running.')
@@ -151,14 +159,13 @@ class GitFetcher(Fetcher):
             await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
 
         # Enable sparse checkouts
+        if hasattr(self.component, 'paths'):
+            cmd = f'git sparse-checkout set {" ".join(self.component.paths)}'
+        else:
+            # Repopulate the working directory with all files, disabling sparse checkouts.
+            cmd = 'git sparse-checkout disable'
         try:
-            if hasattr(self.component, 'paths'):
-                cmd = f'git sparse-checkout set {" ".join(self.component.paths)}'
-                await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
-            else:
-                # Repopulate the working directory with all files, disabling sparse checkouts.
-                cmd = 'git sparse-checkout disable'
-                await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
+            await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             # Since sparse checkout is not supported by old version of git, just give a warning here.
             logging.warning(f'sparse checkout is not supported, skip cmd {cmd}')
