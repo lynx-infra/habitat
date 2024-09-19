@@ -235,7 +235,7 @@ def get_head_commit_id(**kwargs):
 
 def get_full_commit_id(short_id, url):
     cmd = ["git", "ls-remote", url]
-    output = subprocess.check_output(cmd)
+    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     for line in output.decode().splitlines():
         if line.startswith(short_id):
             return line.split()[0].strip()
@@ -352,7 +352,7 @@ def is_bare_git_repo(path):
 
     cmd = f'git -C {path} rev-parse --is-bare-repository'
     try:
-        output = subprocess.check_output(cmd, shell=True)
+        output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         return False
     return output.decode().strip() == 'true'
@@ -363,7 +363,7 @@ def is_git_repo(path):
         return False
     cmd = f'git -C {path} rev-parse'
     try:
-        check_call(cmd, shell=True)
+        check_output(cmd, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         return False
     else:
@@ -477,7 +477,7 @@ async def clear_git_alternates(source_dir):
 def is_git_repo_valid(source_dir):
     try:
         cmd = 'git status'
-        check_call(cmd, shell=True, cwd=source_dir)
+        check_output(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         return False
 
