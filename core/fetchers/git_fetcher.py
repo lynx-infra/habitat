@@ -29,16 +29,16 @@ async def fetch_in_cache_if_needed(
     need_fetch = False
     if not is_bare_git_repo(repo_cache_dir):
         cmd = f'git init --bare {repo_cache_dir}'
-        await async_check_call(cmd, shell=True, cwd=global_cache_dir)
+        await run_git_command(cmd, shell=True, cwd=global_cache_dir, stderr=subprocess.STDOUT)
         cmd = 'git config remote.origin.url ' + url
-        await async_check_call(cmd, shell=True, cwd=repo_cache_dir)
+        await run_git_command(cmd, shell=True, cwd=repo_cache_dir, stderr=subprocess.STDOUT)
         need_fetch = True
     elif fetch_all:
         need_fetch = True
     else:
         cmd = f'git rev-parse {ref_spec.rsplit()[-1]}'
         try:
-            await async_check_call(cmd, shell=True, cwd=repo_cache_dir)
+            await run_git_command(cmd, shell=True, cwd=repo_cache_dir, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             need_fetch = True
 
@@ -46,11 +46,23 @@ async def fetch_in_cache_if_needed(
         logging.debug(f'update git cache in {repo_cache_dir}')
         ref_spec = '+refs/heads/*:refs/remotes/origin/*'
         cmd = f'git fetch --force --progress --update-head-ok -- {url} {ref_spec}'
-        await async_check_call(cmd, shell=True, cwd=repo_cache_dir)
+        await run_git_command(cmd, shell=True, cwd=repo_cache_dir, stderr=subprocess.STDOUT)
     return repo_cache_dir
 
 
-async def run_git_apply_command(patch_path: str, cwd: str):
+async def run_git_command(cmd: str, *args, **kwargs):
+    try:
+        output = await async_check_output(cmd, *args, **kwargs)
+    except subprocess.CalledProcessError as e:
+        logging.error(
+            f"running command {cmd} in {kwargs.get('cwd') if kwargs.get('cwd') else os.getcwd()}, original output:\n"
+            f"{e.output.decode()}"
+        )
+        raise e
+    return output.decode()
+
+
+async def apply_patches(patch_path: str, cwd: str):
     expanded_patch_paths = list(glob(patch_path))
     expanded_patch_paths.sort()
 
@@ -84,29 +96,30 @@ class GitFetcher(Fetcher):
 
         if not is_git_root(source_dir):
             cmd = f'git init {source_dir}'
-            await async_check_call(cmd, shell=True)
+            await run_git_command(cmd, shell=True, stderr=subprocess.STDOUT)
             new_init = True
         elif not is_git_repo_valid(source_dir):
             # Check if alternates is set to the right path, since the global cache might be cleaned.
             # If the alternates are not available, the git repository need to be re-created to avoid losing objects.
             rmtree(source_dir)
             cmd = f'git init {source_dir}'
-            await async_check_call(cmd, shell=True)
+            await run_git_command(cmd, shell=True, stderr=subprocess.STDOUT)
             new_init = True
 
-        remote = subprocess.check_output('git remote', shell=True, cwd=source_dir).decode('utf-8').strip()
+        remote = await run_git_command('git remote', shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
+        remote = remote.strip()
         if not remote:
             cmd = 'git config remote.origin.url ' + url
-            await async_check_call(cmd, shell=True, cwd=source_dir)
+            await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
             remote = 'origin'
 
         # if a repository was fetched before git lfs install,
         # files tracked by lfs will be replaced by file pointer
         if getattr(self.component, 'enable_lfs', False):
             try:
-                await async_check_call('git lfs install', shell=True, cwd=source_dir)
+                await run_git_command('git lfs install', shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
-                logging.warning(f'{e} This may caused by: '
+                logging.warning(f'{e.output.decode()} This may caused by: '
                                 f'1. git lfs not installed. 2. a git lfs install command is already running.')
 
         if options.force and not new_init:
@@ -126,23 +139,23 @@ class GitFetcher(Fetcher):
                             f'directory {target_dir} exist, try use "-f/--force" flag or remove it manually')
             else:
                 cmd = 'git clean -fd && git reset --hard'
-                await async_check_call(cmd, shell=True, cwd=source_dir)
+                await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
 
         logging.debug(f'Fetch git repository {url if DEBUG else self.component.url} in {source_dir}')
         # fix reserved name in file path causing the checkout command complain "error: invalid path..." on windows
         if sys.platform == 'win32':
             cmd = 'git config core.protectNTFS false'
-            await async_check_call(cmd, shell=True, cwd=source_dir)
+            await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
 
         # Enable sparse checkouts
         try:
             if hasattr(self.component, 'paths'):
                 cmd = f'git sparse-checkout set {" ".join(self.component.paths)}'
-                await async_check_call(cmd, shell=True, cwd=source_dir)
+                await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
             else:
                 # Repopulate the working directory with all files, disabling sparse checkouts.
                 cmd = 'git sparse-checkout disable'
-                await async_check_call(cmd, shell=True, cwd=source_dir)
+                await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             # Since sparse checkout is not supported by old version of git, just give a warning here.
             logging.warning(f'sparse checkout is not supported, skip cmd {cmd}')
@@ -160,7 +173,9 @@ class GitFetcher(Fetcher):
         elif new_init:
             remote = 'origin'
             cmd = f'git remote show {remote}'
-            output = subprocess.check_output(cmd, shell=True, cwd=source_dir, env={'LANG': 'en_US.UTF-8'}).decode()
+            output = await run_git_command(
+                cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT, env={'LANG': 'en_US.UTF-8'}
+            )
             res = re.search(r'HEAD branch: (\S+)', output)
             if not res:
                 raise HabitatException(f'HEAD branch of remote repository {remote} not found')
@@ -169,7 +184,7 @@ class GitFetcher(Fetcher):
             checkout_args = f'-B {branch_name} refs/remotes/{remote}/{branch_name}'
         else:
             cmd = 'git status -uno'
-            output = subprocess.check_output(cmd, shell=True, cwd=target_dir).decode('utf-8')
+            output = await run_git_command(cmd, shell=True, cwd=target_dir, stderr=subprocess.STDOUT)
             if output.startswith('HEAD detached at'):
                 # HEAD is detached, do nothing
                 return [target_dir]
@@ -196,7 +211,7 @@ class GitFetcher(Fetcher):
             await set_git_alternates(source_dir, reference_objects_dir)
 
         cmd = f'git fetch {depth_arg} --force --progress --update-head-ok -- {url} {ref_spec}'
-        await async_check_call(cmd, shell=True, cwd=source_dir, retry=1)
+        await run_git_command(cmd, shell=True, cwd=source_dir, retry=1, stderr=subprocess.STDOUT)
 
         if options.raw and not os.path.exists(target_dir):
             os.mkdir(target_dir)
@@ -206,11 +221,11 @@ class GitFetcher(Fetcher):
             cmd = f'git --work-tree={target_dir} checkout FETCH_HEAD -- .'
         else:
             cmd = f'git checkout {checkout_args}'
-        await async_check_call(cmd, shell=True, cwd=source_dir)
+        await run_git_command(cmd, shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
 
         if getattr(self.component, 'enable_lfs', False):
             try:
-                await async_check_call('git lfs pull', shell=True, cwd=source_dir)
+                await run_git_command('git lfs pull', shell=True, cwd=source_dir, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 raise HabitatException(f'{e} This may caused by not installing git lfs')
 
@@ -218,10 +233,10 @@ class GitFetcher(Fetcher):
         if not patch_path:
             pass
         elif isinstance(patch_path, str):
-            await run_git_apply_command(patch_path, source_dir)
+            await apply_patches(patch_path, source_dir)
         elif isinstance(patch_path, list):
             for p in patch_path:
-                await run_git_apply_command(p, source_dir)
+                await apply_patches(p, source_dir)
 
         if target_dir != source_dir and not options.raw:
             move(source_dir, target_dir)
