@@ -14,8 +14,8 @@ from core.exceptions import HabitatException
 from core.fetchers.fetcher import Fetcher
 from core.settings import DEBUG
 from core.utils import (async_check_call, async_check_output, convert_git_url_to_http, create_temp_dir,
-                        get_full_commit_id, is_bare_git_repo, is_git_repo_valid, is_git_root, move, rmtree,
-                        set_git_alternates)
+                        get_full_commit_id, is_bare_git_repo, is_git_repo_valid, is_git_root, is_git_user_set, move,
+                        rmtree, set_git_alternates)
 
 
 async def fetch_in_cache_if_needed(
@@ -54,9 +54,12 @@ async def run_git_apply_command(patch_path: str, cwd: str):
     expanded_patch_paths = list(glob(patch_path))
     expanded_patch_paths.sort()
 
+    apply = 'apply'
+    if is_git_user_set():
+        apply = 'am'
     try:
         await async_check_output(
-            ['git', 'apply'] + [p for p in expanded_patch_paths], cwd=cwd, stderr=subprocess.STDOUT
+            ['git', apply] + expanded_patch_paths, cwd=cwd, stderr=subprocess.STDOUT
         )
     except subprocess.CalledProcessError as e:
         raise HabitatException(f'{e.output.decode()}. This might caused by conflicts between patches and code.')
