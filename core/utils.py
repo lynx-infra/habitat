@@ -26,6 +26,7 @@ import string
 import subprocess
 import sys
 import traceback
+from collections import defaultdict
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -583,3 +584,44 @@ async def is_git_user_set() -> bool:
         return False
 
     return True
+
+
+class DependencyGraph:
+    def __init__(self, deps: dict) -> None:
+        self.node_requirements = defaultdict(list)
+        for dep_name, dep in deps.items():
+            requirements = getattr(dep, 'require', [])
+            self.node_requirements[dep_name].extend(requirements)
+
+
+def visit(graph, node, grey_nodes, black_nodes):
+    # mark the current node as a grey node, indicates that its child has not been traversed.
+    grey_nodes.add(node)
+
+    for require in graph.node_requirements[node]:
+        # cycle detected if current node needs a node that has been marked grey.
+        if require in grey_nodes:
+            raise HabitatException(
+                f"found a cicular dependency, please check {node}'s requirement {require}."
+            )
+
+        # traverse the unvisited node.
+        if require not in black_nodes:
+            visit(graph, require, grey_nodes, black_nodes)
+
+    # mark the current node as a black node, indicates that we don't need to visit it anymore.
+    grey_nodes.remove(node)
+    black_nodes.add(node)
+
+    return grey_nodes, black_nodes
+
+
+def cycle_detection(deps: dict):
+    graph = DependencyGraph(deps)
+
+    grey_nodes = set()
+    black_nodes = set()
+
+    for node in graph.node_requirements:
+        if (node not in grey_nodes) and (node not in black_nodes):
+            grey_nodes, black_nodes = visit(graph, node, grey_nodes, black_nodes)
