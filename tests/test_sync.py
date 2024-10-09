@@ -2,8 +2,10 @@ import hashlib
 import json
 import os.path
 import subprocess
+from unittest.mock import patch
 
 from core.components.solution import load_entries_cache_from_git, store_entries_cache_to_git
+from core.exceptions import HabitatException
 from core.main import main
 from core.utils import rmtree
 from utils import create_zip_file, generate_habitat_config_file, make_change_in_repo, run_with_custom_argv
@@ -448,3 +450,45 @@ def test_sync_git_repo_with_patches(tmp_path):
     assert os.path.exists(f'{cwd}/main/lib-with-one-more-patch/hello.py')
     with open(f'{cwd}/main/lib-with-one-more-patch/hello.py') as f:
         assert f.read() == 'print("not yet")'
+
+
+@patch('core.main.DEBUG', True)
+def test_sync_dependency_with_cycled_requirement(tmp_path):
+    os.chdir(tmp_path)
+    cwd = os.getcwd()
+    subprocess.check_call(['git', 'init', 'dep', '--initial-branch=master'])
+    subprocess.check_call(['git', 'init', 'main-repo', '--initial-branch=master'])
+    solutions = [
+        {
+            'name': '.',
+            'deps_file': 'DEPS',
+            'url': f'file://{cwd}/main-repo/.git',
+            'branch': 'master'
+        }
+    ]
+    deps = {
+        'test_a': {
+            'type': 'git',
+            'url': f'file://{cwd}/dep/.git',
+            'branch': 'master',
+            'require': ['test_b']
+        },
+        'test_b': {
+            'type': 'git',
+            'url': f'file://{cwd}/dep/.git',
+            'branch': 'master',
+            'require': ['test_a']
+        }
+    }
+    make_change_in_repo(
+        f'{cwd}/main-repo', '.habitat', generate_habitat_config_file('solutions', solutions),
+        'add .habitat', 'w'
+    )
+    make_change_in_repo(
+        f'{cwd}/main-repo', 'DEPS', generate_habitat_config_file('deps', deps), 'add DEPS', 'w'
+    )
+    os.chdir('main-repo')
+    try:
+        run_with_custom_argv(main, ['hab', 'sync', '.'])
+    except HabitatException as e:
+        assert str(e) == "found a cicular dependency, please check test_b's requirement test_a."

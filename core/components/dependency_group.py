@@ -13,6 +13,7 @@ from core.event_manager import ThreadingEventManager
 from core.exceptions import HabitatException
 from core.fetchers.local_fetcher import LocalFetcher
 from core.settings import MAX_DEPENDENCY_WAIT_TIME
+from core.utils import cycle_detection
 
 
 async def fetch_child(child, *args, events=None, **kwargs):
@@ -113,6 +114,10 @@ class DependencyGroup(Component, ABC):
 
         # Filter out components whose require has been skipped recursively
         get_final_components_to_fetch(components_to_fetch)
+
+        # cycle detection
+        cycle_detection(components_to_fetch)
+
         for name, child in components_to_fetch.items():
             require = getattr(child, 'require', [])
             events = []
