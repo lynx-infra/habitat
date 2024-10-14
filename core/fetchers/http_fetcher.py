@@ -110,7 +110,9 @@ class HttpFetcher(Fetcher, CacheMixin):
             shutil.copy2(cache, file_path)
             skip_download = True
 
-        header = await self._send_head_request(item)
+        header = {}
+        if not skip_download:
+            header = await self._send_head_request(item)
         partial = _check_range_supported(header)
         size = _get_content_length(header)
 
