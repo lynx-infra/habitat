@@ -4,8 +4,8 @@ import os
 from urllib.parse import urlparse
 
 import asyncio_atexit
-import httpx
 
+import httpx
 from core.common.http_status import client_error, server_error
 from core.exceptions import HabitatException
 
