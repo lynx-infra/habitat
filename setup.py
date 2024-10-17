@@ -19,7 +19,7 @@ REQUIRES = [
 DEV_REQUIRES = [
     'flake8>=3.5.0,<4.0.0',
     'tox>=3.0.0,<4.0.0',
-    'isort>=4.0.0,<5.0.0',
+    'isort==4.3.21',
     'pytest>=4.0.0,<5.0.0',
     'pytest_httpserver==1.0.12',
     'pex'
